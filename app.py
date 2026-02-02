@@ -1,23 +1,72 @@
 import streamlit as st
-import requests
 
-st.title("🎬 TMDB API 테스트")
+# 페이지 설정
+st.set_page_config(page_title="나와 어울리는 영화는?", page_icon="🎬")
 
-# 사이드바에서 API 키 입력
-TMDB_API_KEY = st.sidebar.text_input("TMDB API Key", type="password")
+# 제목
+st.title("🎬 나와 어울리는 영화는?")
 
-if TMDB_API_KEY:
-    if st.button("인기 영화 가져오기"):
-        # TMDB에서 인기 영화 가져오기
-        url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&language=ko-KR"
-        response = requests.get(url)
-        data = response.json()
-        
-        # 첫 번째 영화 정보 출력
-        movie = data['results'][0]
-        st.write(f"🎬 제목: {movie['title']}")
-        st.write(f"⭐ 평점: {movie['vote_average']}/10")
-        st.write(f"📅 개봉일: {movie['release_date']}")
-        st.write(f"📝 줄거리: {movie['overview'][:100]}...")
-else:
-    st.info("사이드바에 TMDB API Key를 입력해주세요.")
+# 소개 문구
+st.write(
+    "간단한 질문에 답하면, 당신의 성향과 어울리는 영화 장르를 찾아드려요. 🎥🍿\n"
+    "편하게 골라주세요!"
+)
+
+st.divider()
+
+# 질문과 선택지
+q1 = st.radio(
+    "Q1. 하루 종일 바빴던 날, 밤에 딱 하나만 보고 잘 수 있다면?",
+    [
+        "잔잔하지만 여운 남는 이야기",
+        "박진감 넘치는 액션으로 스트레스 해소",
+        "현실과 다른 세계에 빠지는 이야기",
+        "아무 생각 없이 웃을 수 있는 영화",
+    ],
+)
+
+q2 = st.radio(
+    "Q2. 시험이 끝난 직후, 가장 끌리는 약속은?",
+    [
+        "카페에서 깊은 이야기 나누기",
+        "여행이나 액티비티 같은 활동적인 일정",
+        "전시·체험형 콘텐츠나 세계관 있는 행사",
+        "웃음 많은 보드게임·술자리",
+    ],
+)
+
+q3 = st.radio(
+    "Q3. 영화 속 주인공이 된다면, 어떤 역할이 좋을까?",
+    [
+        "감정선이 섬세한 관계 중심 인물",
+        "위기를 몸으로 돌파하는 히어로",
+        "특별한 능력을 가진 존재",
+        "분위기를 책임지는 코믹 캐릭터",
+    ],
+)
+
+q4 = st.radio(
+    "Q4. 친구가 영화 추천을 한다면, 어떤 말에 가장 끌려?",
+    [
+        "보고 나면 여운이 오래 남아",
+        "손에 땀 쥘 만큼 긴장감 있어",
+        "세계관이 진짜 독특해",
+        "계속 웃다가 나왔어",
+    ],
+)
+
+q5 = st.radio(
+    "Q5. 주말에 혼자 영화 보기로 한 날, 너의 상태는?",
+    [
+        "감정 정리도 할 겸 몰입하고 싶은 날",
+        "자극적이고 에너지 넘치는 게 필요한 날",
+        "현실을 잠시 벗어나고 싶은 날",
+        "편하게 웃으면서 쉬고 싶은 날",
+    ],
+)
+
+st.divider()
+
+# 결과 보기 버튼
+if st.button("결과 보기"):
+    st.subheader("🔍 분석 중...")
