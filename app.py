@@ -31,38 +31,38 @@ GENRE_MAP = {
         "id": 18,
         "desc": "감정과 관계에 깊이 공감하는 타입",
         "theme": {
-            "bg": "#fff0f5",
-            "card": "#ffffff",
-            "accent": "#ff6b81",
-        },
+            "bg": "#ffe6f0",
+            "accent": "#ff4b91",
+            "emoji": "💖"
+        }
     },
     "액션/어드벤처": {
         "id": 28,
-        "desc": "몰입과 긴장감을 즐기는 에너지형 타입",
+        "desc": "강한 몰입과 에너지를 즐기는 타입",
         "theme": {
-            "bg": "#1e1e1e",
-            "card": "#2a2a2a",
+            "bg": "#111111",
             "accent": "#ff4b4b",
-        },
+            "emoji": "🔥"
+        }
     },
     "SF/판타지": {
         "id": 878,
-        "desc": "상상력과 세계관에 강하게 끌리는 타입",
+        "desc": "상상력과 세계관에 빠지는 타입",
         "theme": {
-            "bg": "#1b1033",
-            "card": "#2e1f5e",
-            "accent": "#9d7bff",
-        },
+            "bg": "#1b1f3b",
+            "accent": "#7f7cff",
+            "emoji": "🌌"
+        }
     },
     "코미디": {
         "id": 35,
-        "desc": "웃음과 분위기를 중시하는 긍정형 타입",
+        "desc": "웃음과 분위기를 중시하는 타입",
         "theme": {
-            "bg": "#fffbe6",
-            "card": "#ffffff",
-            "accent": "#f4c430",
-        },
-    },
+            "bg": "#fff6cc",
+            "accent": "#ffb703",
+            "emoji": "😂"
+        }
+    }
 }
 
 POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500"
@@ -71,7 +71,7 @@ POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500"
 # 제목
 # -------------------------
 st.title("🎬 나와 어울리는 영화는?")
-st.write("간단한 질문에 답하면, 당신의 영화 취향에 맞춰 화면 분위기까지 바뀝니다 🍿")
+st.write("간단한 질문에 답하면, 당신의 영화 취향에 맞는 추천을 해드려요 🍿")
 st.divider()
 
 # -------------------------
@@ -94,7 +94,7 @@ for q in questions:
 st.divider()
 
 # -------------------------
-# 버튼
+# 결과 버튼
 # -------------------------
 if st.button("🎯 결과 보기"):
     st.session_state.show_result = True
@@ -108,11 +108,11 @@ if st.session_state.show_result:
         st.error("❗ 사이드바에 TMDB API Key를 입력해주세요.")
         st.stop()
 
-    # -------------------------
     # 장르 분석
-    # -------------------------
     counter = Counter(answers)
+    total = sum(counter.values())
     main_genre = counter.most_common(1)[0][0]
+
     genre_info = GENRE_MAP[main_genre]
     theme = genre_info["theme"]
 
@@ -125,14 +125,7 @@ if st.session_state.show_result:
         .stApp {{
             background-color: {theme["bg"]};
         }}
-        .movie-card {{
-            background-color: {theme["card"]};
-            padding: 16px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            margin-bottom: 20px;
-        }}
-        .accent {{
+        h1, h2, h3 {{
             color: {theme["accent"]};
         }}
         </style>
@@ -145,9 +138,15 @@ if st.session_state.show_result:
     # -------------------------
     st.markdown(
         f"""
-        <div class="movie-card" style="text-align:center;">
-            <h2>🎯 당신에게 딱인 장르는</h2>
-            <h1 class="accent">{main_genre}</h1>
+        <div style="
+            padding: 30px;
+            border-radius: 18px;
+            background-color: white;
+            text-align: center;
+            box-shadow: 0px 8px 20px rgba(0,0,0,0.1);
+        ">
+            <h2>{theme["emoji"]} 당신에게 딱인 장르는</h2>
+            <h1>{main_genre}</h1>
             <p>{genre_info["desc"]}</p>
         </div>
         """,
@@ -157,43 +156,49 @@ if st.session_state.show_result:
     st.divider()
 
     # -------------------------
+    # 취향 분포
+    # -------------------------
+    st.subheader("📊 나의 영화 취향 분포")
+    for genre, count in counter.items():
+        percent = int((count / total) * 100)
+        st.write(f"{genre} : {percent}%")
+        st.progress(percent)
+
+    st.divider()
+
+    # -------------------------
     # 영화 추천
     # -------------------------
-    with st.spinner("🎥 추천 영화를 불러오는 중입니다..."):
+    st.subheader("🎥 추천 영화")
+
+    with st.spinner("TMDB에서 영화를 불러오는 중입니다..."):
         url = (
             f"https://api.themoviedb.org/3/discover/movie"
             f"?api_key={api_key}&with_genres={genre_info['id']}"
             f"&language=ko-KR&sort_by=popularity.desc"
         )
-        data = requests.get(url).json()
+        response = requests.get(url)
+        data = response.json()
 
     movies = data.get("results", [])[:6]
     cols = st.columns(3)
 
     for idx, movie in enumerate(movies):
         with cols[idx % 3]:
-            st.markdown("<div class='movie-card'>", unsafe_allow_html=True)
 
             if movie.get("poster_path"):
-                st.image(
-                    POSTER_BASE_URL + movie["poster_path"],
-                    use_container_width=True
-                )
+                st.image(POSTER_BASE_URL + movie["poster_path"], use_container_width=True)
+            else:
+                st.write("포스터 없음")
 
             st.markdown(f"### 🎬 {movie['title']}")
-            st.markdown(f"⭐ <span class='accent'>{movie['vote_average']}</span>", unsafe_allow_html=True)
+            st.markdown(f"⭐ **{movie['vote_average']} / 10**")
 
             with st.expander("상세 정보"):
-                st.write(
-                    movie["overview"]
-                    if movie["overview"]
-                    else "줄거리 정보가 없습니다."
+                st.write(movie["overview"] or "줄거리 정보가 없습니다.")
+                st.markdown(
+                    f"👉 {main_genre} 성향의 당신에게 잘 맞는 인기 작품이에요."
                 )
-                st.write(
-                    f"이 영화는 **{main_genre}** 성향의 당신에게 특히 잘 맞는 작품이에요."
-                )
-
-            st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
 
