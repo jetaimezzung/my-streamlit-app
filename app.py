@@ -1,20 +1,15 @@
 import streamlit as st
+import time
 
-# 페이지 설정
 st.set_page_config(page_title="나와 어울리는 영화는?", page_icon="🎬")
 
-# 제목
 st.title("🎬 나와 어울리는 영화는?")
-
-# 소개 문구
 st.write(
-    "간단한 질문에 답하면, 당신의 성향과 어울리는 영화 장르를 찾아드려요. 🎥🍿\n"
-    "편하게 골라주세요!"
+    "간단한 질문에 답하면, 당신의 성향과 어울리는 영화 장르를 찾아드려요. 🎥🍿"
 )
 
 st.divider()
 
-# 질문과 선택지
 q1 = st.radio(
     "Q1. 하루 종일 바빴던 날, 밤에 딱 하나만 보고 잘 수 있다면?",
     [
@@ -67,6 +62,7 @@ q5 = st.radio(
 
 st.divider()
 
-# 결과 보기 버튼
 if st.button("결과 보기"):
-    st.subheader("🔍 분석 중...")
+    with st.spinner("분석 중입니다... 🎬"):
+        time.sleep(1.5)  # API 연동 전 임시 대기
+    st.success("분석 완료! (다음 단계에서 결과가 나올 예정이에요)")
