@@ -1,178 +1,195 @@
 import streamlit as st
-import requests
-from collections import Counter
-import base64
+import openai
 
-# -------------------------
-# 페이지 설정
-# -------------------------
+# -----------------------------
+# 기본 설정
+# -----------------------------
 st.set_page_config(
-    page_title="🎬 나와 어울리는 영화는?",
-    page_icon="🎬",
-    layout="wide"
+    page_title="COW | Context Over Words",
+    page_icon="🐄",
+    layout="centered"
 )
 
-# -------------------------
-# 세션 상태
-# -------------------------
-if "show_result" not in st.session_state:
-    st.session_state.show_result = False
+st.title("🐄 COW : Context Over Words")
+st.caption("실전 대화를 미리 훈련하는 언어 앱")
 
-# -------------------------
-# 사이드바
-# -------------------------
-st.sidebar.header("🔑 TMDB API 설정")
-api_key = st.sidebar.text_input("TMDB API Key", type="password")
-
-# -------------------------
-# SVG 배경 생성
-# -------------------------
-def svg_bg(svg: str):
-    return base64.b64encode(svg.encode()).decode()
-
-HEART_BG = svg_bg("""
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" opacity="0.15">
-<text x="40" y="120" font-size="64">💖</text>
-</svg>
-""")
-
-FIRE_BG = svg_bg("""
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" opacity="0.15">
-<text x="40" y="120" font-size="64">🔥</text>
-</svg>
-""")
-
-SPACE_BG = svg_bg("""
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" opacity="0.15">
-<text x="40" y="120" font-size="64">✨</text>
-</svg>
-""")
-
-COMEDY_BG = svg_bg("""
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" opacity="0.15">
-<text x="40" y="120" font-size="64">😂</text>
-</svg>
-""")
-
-# -------------------------
-# 장르 매핑
-# -------------------------
-GENRE_MAP = {
-    "로맨스/드라마": {"id": 18, "bg": HEART_BG, "accent": "#ff4b91", "emoji": "💖"},
-    "액션/어드벤처": {"id": 28, "bg": FIRE_BG, "accent": "#ff4b4b", "emoji": "🔥"},
-    "SF/판타지": {"id": 878, "bg": SPACE_BG, "accent": "#7f7cff", "emoji": "🌌"},
-    "코미디": {"id": 35, "bg": COMEDY_BG, "accent": "#ffb703", "emoji": "😂"},
-}
-
-POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500"
-
-# -------------------------
-# 기본 CSS (가독성 핵심)
-# -------------------------
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background-repeat: repeat;
-    }
-
-    /* 질문 카드 */
-    .question-card {
-        background: rgba(255, 255, 255, 0.92);
-        padding: 24px;
-        border-radius: 16px;
-        margin-bottom: 20px;
-        box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-        color: #222;
-    }
-
-    /* 라디오 글씨 */
-    label, .stRadio > div {
-        color: #222 !important;
-        font-weight: 500;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
+# -----------------------------
+# API Key
+# -----------------------------
+st.sidebar.header("🔑 API 설정")
+openai_api_key = st.sidebar.text_input(
+    "OpenAI API Key",
+    type="password"
 )
 
-# -------------------------
-# 제목
-# -------------------------
-st.title("🎬 나와 어울리는 영화는?")
-st.write("당신의 선택에 따라 영화 취향과 테마가 바뀝니다 🍿")
-st.divider()
+if openai_api_key:
+    openai.api_key = openai_api_key
 
-# -------------------------
-# 질문 (카드 적용)
-# -------------------------
-questions = [
-    "Q1. 하루 종일 바빴던 날, 밤에 딱 하나만 보고 잘 수 있다면?",
-    "Q2. 시험이 끝난 직후, 가장 끌리는 약속은?",
-    "Q3. 영화 속 주인공이 된다면?",
-    "Q4. 친구의 영화 추천 멘트 중 가장 끌리는 건?",
-    "Q5. 주말에 혼자 영화를 본다면?",
-]
+# -----------------------------
+# Session State
+# -----------------------------
+if "step" not in st.session_state:
+    st.session_state.step = 1
 
-options = list(GENRE_MAP.keys())
-answers = []
+if "context" not in st.session_state:
+    st.session_state.context = ""
 
-for q in questions:
-    st.markdown('<div class="question-card">', unsafe_allow_html=True)
-    answers.append(st.radio(q, options, key=q))
-    st.markdown('</div>', unsafe_allow_html=True)
+if "details" not in st.session_state:
+    st.session_state.details = ""
 
-if st.button("🎯 결과 보기"):
-    st.session_state.show_result = True
+if "user_sentence" not in st.session_state:
+    st.session_state.user_sentence = ""
 
-# -------------------------
-# 결과 화면
-# -------------------------
-if st.session_state.show_result:
+if "feedback_log" not in st.session_state:
+    st.session_state.feedback_log = []
 
-    counter = Counter(answers)
-    main_genre = counter.most_common(1)[0][0]
-    genre = GENRE_MAP[main_genre]
+# -----------------------------
+# Step 1: 자유 맥락 입력
+# -----------------------------
+if st.session_state.step == 1:
+    st.subheader("1️⃣ 상황을 자유롭게 입력하세요")
 
-    # 테마 배경 적용
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url("data:image/svg+xml;base64,{genre['bg']}");
-        }}
-        h1, h2 {{
-            color: {genre['accent']};
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
+    st.session_state.context = st.text_area(
+        "예시: 해외 바이어와 첫 미팅에서 일정 조율을 해야 함",
+        height=120
     )
 
-    st.markdown(
-        f"""
-        <div class="question-card" style="text-align:center;">
-            <h2>{genre['emoji']} 당신에게 딱인 장르는</h2>
-            <h1>{main_genre}</h1>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    if st.button("다음"):
+        if not openai_api_key:
+            st.warning("OpenAI API Key를 입력해주세요.")
+        elif st.session_state.context.strip() == "":
+            st.warning("상황을 입력해주세요.")
+        else:
+            st.session_state.step = 2
+            st.experimental_rerun()
 
-    st.subheader("🎥 추천 영화")
+# -----------------------------
+# Step 2: AI의 되묻기
+# -----------------------------
+elif st.session_state.step == 2:
+    st.subheader("2️⃣ AI가 상황을 구체화합니다")
 
-    with st.spinner("TMDB에서 영화를 불러오는 중입니다..."):
-        url = (
-            f"https://api.themoviedb.org/3/discover/movie"
-            f"?api_key={api_key}&with_genres={genre['id']}"
-            f"&language=ko-KR&sort_by=popularity.desc"
+    with st.spinner("AI가 필요한 정보를 정리 중입니다..."):
+        prompt = f"""
+        사용자가 다음과 같은 상황을 입력했다:
+        "{st.session_state.context}"
+
+        실제 대면 영어 회화를 연습하기 위해
+        꼭 필요한 추가 정보 3가지를 항목 형태로 질문해라.
+        (예: 상대, 목적, 톤)
+        """
+
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5
         )
-        movies = requests.get(url).json().get("results", [])[:6]
 
-    cols = st.columns(3)
-    for i, movie in enumerate(movies):
-        with cols[i % 3]:
-            if movie.get("poster_path"):
-                st.image(POSTER_BASE_URL + movie["poster_path"], use_container_width=True)
-            st.markdown(f"### {movie['title']}")
-            st.markdown(f"⭐ {movie['vote_average']}")
+        ai_question = response.choices[0].message.content
+
+    st.markdown("**AI의 질문:**")
+    st.write(ai_question)
+
+    st.session_state.details = st.text_area(
+        "위 질문에 답해주세요",
+        height=120
+    )
+
+    if st.button("훈련 시작"):
+        if st.session_state.details.strip() == "":
+            st.warning("답변을 입력해주세요.")
+        else:
+            st.session_state.step = 3
+            st.experimental_rerun()
+
+# -----------------------------
+# Step 3: 발화 생성
+# -----------------------------
+elif st.session_state.step == 3:
+    st.subheader("3️⃣ 실제로 말해볼 문장을 만들어보세요")
+
+    with st.spinner("실전 문장을 생성 중입니다..."):
+        prompt = f"""
+        상황:
+        {st.session_state.context}
+
+        추가 정보:
+        {st.session_state.details}
+
+        이 상황에서 실제 대면 비즈니스 영어로
+        자연스럽게 말할 수 있는 문장 1개를 제시하라.
+        """
+
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+
+        model_sentence = response.choices[0].message.content
+
+    st.markdown("**AI 예시 문장:**")
+    st.success(model_sentence)
+
+    st.session_state.user_sentence = st.text_input(
+        "이제 직접 말해보세요 (문장 입력)"
+    )
+
+    if st.button("피드백 받기"):
+        if st.session_state.user_sentence.strip() == "":
+            st.warning("문장을 입력해주세요.")
+        else:
+            st.session_state.step = 4
+            st.experimental_rerun()
+
+# -----------------------------
+# Step 4: 발화 피드백
+# -----------------------------
+elif st.session_state.step == 4:
+    st.subheader("4️⃣ 발화 피드백")
+
+    with st.spinner("피드백 생성 중..."):
+        prompt = f"""
+        사용자의 문장:
+        "{st.session_state.user_sentence}"
+
+        이 문장을 기준으로 다음을 제공하라:
+        1. 자연스러움 평가 (한 줄)
+        2. 개선 포인트
+        3. 더 자연스러운 대체 문장
+        """
+
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.6
+        )
+
+        feedback = response.choices[0].message.content
+
+    st.markdown("### 📝 피드백")
+    st.write(feedback)
+
+    # 누적 로그 저장
+    st.session_state.feedback_log.append({
+        "context": st.session_state.context,
+        "sentence": st.session_state.user_sentence,
+        "feedback": feedback
+    })
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("다시 연습하기"):
+            st.session_state.step = 3
+            st.experimental_rerun()
+
+    with col2:
+        if st.button("새 상황 시작"):
+            st.session_state.step = 1
+            st.experimental_rerun()
+
+# -----------------------------
+# Footer
+# -----------------------------
+st.divider()
+st.caption("COW는 문장이 아니라 맥락을 훈련합니다.")
