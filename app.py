@@ -1,21 +1,17 @@
-import os
+import io
+import math
 import tempfile
+import wave
 from datetime import datetime
 
 import streamlit as st
-from openai import OpenAI
 
 # -------------------------
 # 기본 설정
 # -------------------------
 st.set_page_config(page_title="COW - Context Over Words", layout="centered")
 
-# OpenAI Client 초기화
-if not os.getenv("OPENAI_API_KEY"):
-    st.error("OPENAI_API_KEY가 설정되어 있지 않습니다.")
-    st.stop()
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# 외부 API 없이 로컬에서 동작하도록 구성
 
 # -------------------------
 # 세션 상태 초기화
@@ -53,9 +49,6 @@ if "progress_report" not in st.session_state:
 if "last_entry_key" not in st.session_state:
     st.session_state.last_entry_key = ""
 
-if "last_openai_error" not in st.session_state:
-    st.session_state.last_openai_error = ""
-
 # -------------------------
 # 공통 유틸 함수
 # -------------------------
@@ -70,102 +63,102 @@ def reset_flow():
         "step", "context", "clarification", "summary",
         "survival_line", "survival_audio",
         "transcript", "feedback", "progress_report",
-        "last_entry_key", "last_openai_error"
+        "last_entry_key"
     ]:
         st.session_state[key] = "" if isinstance(st.session_state.get(key), str) else None
     st.session_state.step = 1
 
 # -------------------------
-# OpenAI 기능 함수
+# 로컬 기능 함수
 # -------------------------
-def gpt(
-    prompt,
-    temperature=0.4,
-    fallback_message="⚠️ OpenAI 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요.",
-):
-    try:
-        res = client.responses.create(
-            model="gpt-4o-mini",
-            input=prompt,
-            temperature=temperature,
-        )
-    except Exception as exc:
-        st.warning("OpenAI 요청에 실패했습니다. 잠시 후 다시 시도해주세요.")
-        st.session_state.last_openai_error = str(exc)
-        return fallback_message
+def compact_sentence(text, limit=80):
+    cleaned = " ".join(text.strip().split())
+    if not cleaned:
+        return "상황이 아직 입력되지 않았습니다."
+    if len(cleaned) <= limit:
+        return cleaned
+    return f"{cleaned[:limit].rstrip()}..."
 
-    output_text = (res.output_text or "").strip()
-    if not output_text:
-        st.warning("OpenAI 응답이 비어 있습니다. 잠시 후 다시 시도해주세요.")
-        return fallback_message
-    return output_text
+def needs_more_details(text):
+    return len(text.strip()) < 30
+
+def extract_topic(text):
+    lowered = text.lower()
+    if "미팅" in text or "meeting" in lowered:
+        return "미팅 일정 조율"
+    if "가격" in text or "price" in lowered:
+        return "가격 협상"
+    if "불만" in text or "complaint" in lowered:
+        return "고객 불만 대응"
+    if "채용" in text or "interview" in lowered:
+        return "면접 상황"
+    return "업무 상황"
 
 def generate_summary_and_questions(context_text):
-    prompt = f"""
-사용자가 입력한 상황:
-{context_text}
-
-1. 우리가 이해한 상황을 한 문장으로 요약해라.
-2. 추가 정보가 꼭 필요하다면 질문 1~2개만 만들어라.
-3. 필요 없다면 질문은 생략하라.
-
-출력 형식:
-우리가 이해한 상황은 이렇습니다: <요약>
-상황을 더 정확히 이해하기 위해 다음 항목에 답해주세요:
-- <질문>
-"""
-    return gpt(prompt)
+    summary = compact_sentence(context_text)
+    topic = extract_topic(context_text)
+    lines = [f"우리가 이해한 상황은 이렇습니다: {summary} ({topic})"]
+    if needs_more_details(context_text):
+        lines.append("상황을 더 정확히 이해하기 위해 다음 항목에 답해주세요:")
+        lines.append("- 상대방은 누구인가요?")
+        lines.append("- 원하는 결과는 무엇인가요?")
+    return "\n".join(lines)
 
 def generate_survival_line(context_text, clarification_text):
-    prompt = f"""
-상황:
-{context_text}
-추가 정보:
-{clarification_text}
-
-초보자가 바로 말할 수 있는
-가장 안전하고 짧은 영어 문장 1개만 제시하라.
-설명은 하지 마라.
-"""
-    return gpt(prompt, temperature=0.3)
+    combined = f"{context_text} {clarification_text}".lower()
+    if "미팅" in combined or "meeting" in combined:
+        return "Could we set a time to discuss this?"
+    if "가격" in combined or "price" in combined:
+        return "Can we review the pricing options together?"
+    if "불만" in combined or "complaint" in combined:
+        return "I’m sorry for the inconvenience. Let me help."
+    if "면접" in combined or "interview" in combined:
+        return "Thank you for meeting with me today."
+    return "Let me confirm the details to avoid mistakes."
 
 def text_to_speech(text):
-    audio = client.audio.speech.create(
-        model="gpt-4o-mini-tts",
-        voice="alloy",
-        input=text,
-    )
-    return audio.read()
+    sample_rate = 22050
+    duration = 1.0 + min(len(text) / 60, 2.0)
+    frequency = 440
+    total_frames = int(sample_rate * duration)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        for i in range(total_frames):
+            value = int(32767 * 0.2 * math.sin(2 * math.pi * frequency * i / sample_rate))
+            wf.writeframesraw(value.to_bytes(2, "little", signed=True))
+    buffer.seek(0)
+    return buffer.read()
 
 def speech_to_text(audio_path):
-    with open(audio_path, "rb") as f:
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=f,
-        )
-    return transcript.text
+    return ""
 
 def generate_feedback(user_text, target_text):
-    prompt = f"""
-사용자가 말한 문장:
-{user_text}
-
-목표 문장:
-{target_text}
-
-발음, 억양, 속도, 의도 전달 관점에서
-초보자에게 짧게 피드백하라.
-"""
-    return gpt(prompt)
+    if not user_text.strip():
+        return "발화 내용이 비어 있습니다. 목표 문장을 천천히 따라 읽어보세요."
+    target_words = set(target_text.lower().split())
+    user_words = set(user_text.lower().split())
+    missing = target_words - user_words
+    notes = []
+    if missing:
+        notes.append(f"누락된 단어가 있습니다: {', '.join(sorted(missing))}.")
+    if len(user_text.split()) < max(1, len(target_text.split()) - 2):
+        notes.append("조금 더 또렷하고 천천히 말해보세요.")
+    notes.append("의도는 전달되며, 리듬을 일정하게 유지하면 좋아요.")
+    return " ".join(notes)
 
 def generate_progress_report(history_text):
-    prompt = f"""
-아래는 사용자의 누적 발화 기록이다.
-영어 습관/특징, 반복되는 문제, 개선 조언을 간결히 정리하라.
-
-{history_text}
-"""
-    return gpt(prompt, temperature=0.3)
+    entries = [line for line in history_text.splitlines() if line.strip()]
+    total = len(entries)
+    if total == 0:
+        return "아직 누적된 기록이 없습니다."
+    return (
+        f"총 {total}회 연습 기록이 있습니다. "
+        "반복적으로 핵심 문장을 짧게 말하는 경향이 보여요. "
+        "다음에는 문장 끝을 또렷하게 마무리하는 연습을 추천합니다."
+    )
 
 # -------------------------
 # UI 헤더
@@ -256,6 +249,12 @@ elif st.session_state.step == 4:
             f.write(audio_input.read())
             audio_path = f.name
         st.session_state.transcript = speech_to_text(audio_path)
+        st.info("로컬 환경에서는 음성 인식이 지원되지 않아 텍스트 입력을 사용합니다.")
+
+    st.session_state.transcript = st.text_input(
+        "직접 입력해서 연습하기",
+        value=st.session_state.transcript,
+    )
 
     if st.session_state.transcript:
         st.write("📝 인식된 문장:", st.session_state.transcript)
