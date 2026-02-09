@@ -53,6 +53,9 @@ if "progress_report" not in st.session_state:
 if "last_entry_key" not in st.session_state:
     st.session_state.last_entry_key = ""
 
+if "last_openai_error" not in st.session_state:
+    st.session_state.last_openai_error = ""
+
 # -------------------------
 # 공통 유틸 함수
 # -------------------------
@@ -67,7 +70,7 @@ def reset_flow():
         "step", "context", "clarification", "summary",
         "survival_line", "survival_audio",
         "transcript", "feedback", "progress_report",
-        "last_entry_key"
+        "last_entry_key", "last_openai_error"
     ]:
         st.session_state[key] = "" if isinstance(st.session_state.get(key), str) else None
     st.session_state.step = 1
@@ -75,13 +78,27 @@ def reset_flow():
 # -------------------------
 # OpenAI 기능 함수
 # -------------------------
-def gpt(prompt, temperature=0.4):
-    res = client.responses.create(
-        model="gpt-4o-mini",
-        input=prompt,
-        temperature=temperature,
-    )
-    return res.output_text
+def gpt(
+    prompt,
+    temperature=0.4,
+    fallback_message="⚠️ OpenAI 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요.",
+):
+    try:
+        res = client.responses.create(
+            model="gpt-4o-mini",
+            input=prompt,
+            temperature=temperature,
+        )
+    except Exception as exc:
+        st.warning("OpenAI 요청에 실패했습니다. 잠시 후 다시 시도해주세요.")
+        st.session_state.last_openai_error = str(exc)
+        return fallback_message
+
+    output_text = (res.output_text or "").strip()
+    if not output_text:
+        st.warning("OpenAI 응답이 비어 있습니다. 잠시 후 다시 시도해주세요.")
+        return fallback_message
+    return output_text
 
 def generate_summary_and_questions(context_text):
     prompt = f"""
