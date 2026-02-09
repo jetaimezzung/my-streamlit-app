@@ -1,9 +1,7 @@
-import json
-import os
 from datetime import datetime
 
-import requests
 import streamlit as st
+from streamlit import components
 
 # -------------------------
 # 기본 설정
@@ -28,17 +26,11 @@ if "summary" not in st.session_state:
 if "survival_line" not in st.session_state:
     st.session_state.survival_line = ""
 
-if "survival_audio" not in st.session_state:
-    st.session_state.survival_audio = None
-
 if "transcript" not in st.session_state:
     st.session_state.transcript = ""
 
 if "feedback" not in st.session_state:
     st.session_state.feedback = ""
-
-if "feedback_audio" not in st.session_state:
-    st.session_state.feedback_audio = None
 
 if "history" not in st.session_state:
     st.session_state.history = []
@@ -48,9 +40,6 @@ if "progress_report" not in st.session_state:
 
 if "last_entry_key" not in st.session_state:
     st.session_state.last_entry_key = ""
-
-if "tts_voice" not in st.session_state:
-    st.session_state.tts_voice = "alloy"
 
 # -------------------------
 # 공통 유틸 함수
@@ -71,81 +60,13 @@ def reset_flow():
         "clarification",
         "summary",
         "survival_line",
-        "survival_audio",
         "transcript",
         "feedback",
-        "feedback_audio",
         "progress_report",
         "last_entry_key",
     ]:
         st.session_state[key] = "" if isinstance(st.session_state.get(key), str) else None
     st.session_state.step = 1
-
-
-# -------------------------
-# API 설정
-# -------------------------
-
-def get_openai_headers():
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        return None
-    return {
-        "Authorization": f"Bearer {api_key}",
-    }
-
-
-def openai_text_to_speech(text, voice="alloy"):
-    headers = get_openai_headers()
-    if headers is None:
-        return None, "OPENAI_API_KEY가 설정되지 않아 TTS를 실행할 수 없습니다."
-
-    payload = {
-        "model": "gpt-4o-mini-tts",
-        "input": text,
-        "voice": voice,
-        "format": "mp3",
-    }
-    try:
-        response = requests.post(
-            "https://api.openai.com/v1/audio/speech",
-            headers={**headers, "Content-Type": "application/json"},
-            data=json.dumps(payload),
-            timeout=30,
-        )
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        return None, f"TTS 요청에 실패했습니다: {exc}"
-
-    return response.content, None
-
-
-def openai_speech_to_text(audio_bytes):
-    headers = get_openai_headers()
-    if headers is None:
-        return None, "OPENAI_API_KEY가 설정되지 않아 음성 인식을 실행할 수 없습니다."
-
-    files = {
-        "file": ("speech.wav", audio_bytes, "audio/wav"),
-    }
-    data = {
-        "model": "gpt-4o-mini-transcribe",
-        "language": "en",
-        "response_format": "text",
-    }
-    try:
-        response = requests.post(
-            "https://api.openai.com/v1/audio/transcriptions",
-            headers=headers,
-            files=files,
-            data=data,
-            timeout=60,
-        )
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        return None, f"음성 인식 요청에 실패했습니다: {exc}"
-
-    return response.text.strip(), None
 
 
 # -------------------------
@@ -239,6 +160,44 @@ def generate_progress_report(history_text):
     )
 
 
+def render_browser_tts(text, button_label, component_key):
+    safe_text = (
+        text.replace("\\", "\\\\")
+        .replace("`", "\\`")
+        .replace("$", "\\$")
+        .replace("\n", " ")
+    )
+    components.html(
+        f"""
+        <div>
+          <button id="{component_key}" style="
+              background:#4b60ff;
+              color:white;
+              border:none;
+              padding:8px 14px;
+              border-radius:8px;
+              font-weight:600;
+              cursor:pointer;">
+            {button_label}
+          </button>
+        </div>
+        <script>
+          const button = document.getElementById("{component_key}");
+          button.addEventListener("click", () => {{
+            if (!("speechSynthesis" in window)) {{
+              alert("이 브라우저에서는 TTS를 지원하지 않습니다.");
+              return;
+            }}
+            const utterance = new SpeechSynthesisUtterance(`{safe_text}`);
+            utterance.lang = "en-US";
+            window.speechSynthesis.speak(utterance);
+          }});
+        </script>
+        """,
+        height=60,
+    )
+
+
 # -------------------------
 # UI 스타일
 # -------------------------
@@ -293,12 +252,8 @@ st.markdown(
 )
 
 with st.expander("⚙️ TTS/STT 설정", expanded=False):
-    st.caption("OPENAI_API_KEY가 설정되어 있으면 음성 입출력을 사용할 수 있습니다.")
-    st.session_state.tts_voice = st.selectbox(
-        "TTS 음색",
-        ["alloy", "verse", "aria", "sage", "ballad"],
-        index=0,
-    )
+    st.caption("외부 API 없이 브라우저 내장 TTS만 사용합니다.")
+    st.caption("음성 인식(STT)은 지원하지 않으며, 직접 입력으로 연습합니다.")
 
 st.markdown("</div>", unsafe_allow_html=True)
 st.divider()
@@ -363,21 +318,14 @@ elif st.session_state.step == 3:
 
     tts_col, info_col = st.columns([1, 2])
     with tts_col:
-        if st.button("🔊 문장 듣기"):
-            audio_data, error = openai_text_to_speech(
-                st.session_state.survival_line,
-                voice=st.session_state.tts_voice,
-            )
-            if error:
-                st.warning(error)
-            else:
-                st.session_state.survival_audio = audio_data
+        render_browser_tts(
+            st.session_state.survival_line,
+            "🔊 문장 듣기",
+            "survival-tts-button",
+        )
 
     with info_col:
-        st.caption("문장을 누르고 들어보세요. 발음과 억양을 따라 해보면 좋아요.")
-
-    if st.session_state.survival_audio:
-        st.audio(st.session_state.survival_audio, format="audio/mp3")
+        st.caption("버튼을 눌러 브라우저 TTS로 문장을 들어보세요.")
 
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -392,15 +340,7 @@ elif st.session_state.step == 4:
     st.subheader("STEP 4. 한번 말해보세요")
     st.write("한번 말해보세요. 완벽하지 않아도 괜찮습니다.")
 
-    audio_input = st.audio_input("🎤 말하기")
-    if audio_input:
-        audio_bytes = audio_input.read()
-        transcript, error = openai_speech_to_text(audio_bytes)
-        if error:
-            st.warning(error)
-        else:
-            st.session_state.transcript = transcript
-
+    st.info("음성 인식은 오프라인 모드에서 지원되지 않습니다. 직접 입력으로 연습하세요.")
     st.session_state.transcript = st.text_input(
         "직접 입력해서 연습하기",
         value=st.session_state.transcript,
@@ -429,18 +369,11 @@ elif st.session_state.step == 5:
 
     st.info(f"이번 발화에 대한 피드백입니다. {st.session_state.feedback}")
 
-    if st.button("🔊 피드백 음성 듣기"):
-        audio_data, error = openai_text_to_speech(
-            st.session_state.feedback,
-            voice=st.session_state.tts_voice,
-        )
-        if error:
-            st.warning(error)
-        else:
-            st.session_state.feedback_audio = audio_data
-
-    if st.session_state.feedback_audio:
-        st.audio(st.session_state.feedback_audio, format="audio/mp3")
+    render_browser_tts(
+        st.session_state.feedback,
+        "🔊 피드백 음성 듣기",
+        "feedback-tts-button",
+    )
 
     entry_key = f"{st.session_state.context}|{st.session_state.transcript}"
     if entry_key != st.session_state.last_entry_key:
