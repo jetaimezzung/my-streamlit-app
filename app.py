@@ -76,12 +76,12 @@ def reset_flow():
 # OpenAI 기능 함수
 # -------------------------
 def gpt(prompt, temperature=0.4):
-    res = client.chat.completions.create(
+    res = client.responses.create(
         model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
+        input=prompt,
         temperature=temperature,
     )
-    return res.choices[0].message.content
+    return res.output_text
 
 def generate_summary_and_questions(context_text):
     prompt = f"""
