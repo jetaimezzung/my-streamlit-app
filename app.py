@@ -1,7 +1,9 @@
+import os
 import uuid
 from datetime import datetime
 
 import streamlit as st
+from openai import OpenAI
 
 # =========================
 # Page Config
@@ -110,7 +112,7 @@ st.markdown(
 # Header
 # =========================
 st.title("🐄 COW")
-st.markdown("**Context Over Words**  ·  회의 들어가기 2분 전에 켜는 앱")
+st.markdown("**Context Over Words**  ·  영어가 필요한 모든 순간을 위한 앱")
 st.caption("말을 잘하게 만드는 앱이 아니라, 지금 당장 말할 수 있게 해주는 앱")
 
 # =========================
@@ -126,6 +128,12 @@ if "survival_line" not in st.session_state:
     st.session_state.survival_line = "I may need a bit more time on my task."
 if "history" not in st.session_state:
     st.session_state.history = []
+if "question_answers" not in st.session_state:
+    st.session_state.question_answers = {}
+if "practice_text" not in st.session_state:
+    st.session_state.practice_text = ""
+if "latest_transcript" not in st.session_state:
+    st.session_state.latest_transcript = ""
 
 
 def speak_button(text: str, label: str, key: str) -> None:
@@ -152,29 +160,67 @@ def speak_button(text: str, label: str, key: str) -> None:
 
 def build_summary(context: str) -> list[str]:
     lowered = context.lower()
-    if any(keyword in lowered for keyword in ["회의", "미팅", "meeting"]):
+    if any(keyword in lowered for keyword in ["회의", "미팅", "meeting", "call", "zoom"]):
         return [
-            "대면 비즈니스 요청",
-            "회의 중 발언",
-            "짧게 말하는 게 안전",
+            "공식/반공식 대화 상황",
+            "짧고 명료한 말투가 안전",
+            "상황 신호 후 요청/의견 제시",
         ]
-    if any(keyword in lowered for keyword in ["지연", "delay", "마감"]):
+    if any(keyword in lowered for keyword in ["지연", "delay", "마감", "deadline"]):
         return [
-            "업무 일정 조정 요청",
-            "상대는 매니저/팀원",
-            "이유는 한 문장으로",
+            "요청/협의 상황",
+            "상대는 협력자/상급자/고객",
+            "이유는 한 문장으로 간단히",
         ]
-    if any(keyword in lowered for keyword in ["사과", "미안", "sorry"]):
+    if any(keyword in lowered for keyword in ["사과", "미안", "sorry", "apology"]):
         return [
             "상황 정리 + 정중한 톤",
             "책임을 과하게 말하지 않기",
             "다음 조치 제안 필요",
         ]
+    if any(keyword in lowered for keyword in ["여행", "공항", "hotel", "restaurant", "예약"]):
+        return [
+            "서비스/여행 상황",
+            "요청을 먼저 말하기",
+            "필요한 정보만 짧게 전달",
+        ]
+    if any(keyword in lowered for keyword in ["학교", "수업", "class", "teacher"]):
+        return [
+            "교육/학습 상황",
+            "질문을 한 문장으로",
+            "추가 설명은 요청 받을 때",
+        ]
     return [
-        "비즈니스 상황",
+        "일상 또는 업무 상황",
         "짧고 안전한 표현 필요",
         "한 문장으로 먼저 시작",
     ]
+
+
+def openai_enabled() -> bool:
+    return bool(os.getenv("OPENAI_API_KEY"))
+
+
+@st.cache_data(show_spinner=False)
+def generate_tts_audio(text: str) -> bytes | None:
+    if not openai_enabled():
+        return None
+    client = OpenAI()
+    response = client.audio.speech.create(
+        model="gpt-4o-mini-tts",
+        voice="alloy",
+        input=text,
+    )
+    return response.read()
+
+
+def render_tts_block(text: str, key: str) -> None:
+    st.markdown("**TTS Audio Out**")
+    audio_bytes = generate_tts_audio(text)
+    if audio_bytes:
+        st.audio(audio_bytes, format="audio/mp3")
+    else:
+        st.info("TTS 사용을 위해 OPENAI_API_KEY를 설정해 주세요.")
 
 # =========================
 # STEP 1: 자유 맥락 입력 (핵심)
@@ -185,7 +231,7 @@ if st.session_state.step == 1:
     st.subheader("곧 직접 말해야 하는 상황을 그대로 적어주세요")
     st.markdown(
         "문장이 엉망이어도 괜찮습니다. **한국어 그대로** 적어도 OK.\n\n"
-        "입력하면 바로 다음 단계로 이동합니다.",
+        "비즈니스뿐 아니라 일상/학업/여행 등 영어가 필요한 모든 상황을 적어주세요.",
         unsafe_allow_html=True,
     )
     st.markdown("</div>", unsafe_allow_html=True)
@@ -216,11 +262,11 @@ if st.session_state.step == 1:
             st.rerun()
 
 # =========================
-# STEP 2: 핵심 맥락 요약 (질문 생략)
+# STEP 2: 핵심 맥락 요약
 # =========================
 elif st.session_state.step == 2:
-    st.markdown("<div class='cow-step'>STEP 2 · AI 핵심 맥락 요약</div>", unsafe_allow_html=True)
-    st.subheader("요약만 보여주고 바로 진행합니다")
+    st.markdown("<div class='cow-step'>STEP 2 · AI 1차 맥락 해석</div>", unsafe_allow_html=True)
+    st.subheader("우리가 이해한 상황을 요약합니다")
 
     st.markdown('<div class="cow-card">', unsafe_allow_html=True)
     st.markdown("**이 상황은**")
@@ -228,130 +274,158 @@ elif st.session_state.step == 2:
         st.markdown(f"• {line}")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    if len(st.session_state.context_text.strip()) < 12:
-        st.caption("입력이 너무 짧으면 질문 단계가 나타날 수 있습니다.")
-    else:
-        st.caption("질문 단계는 정말 애매할 때만 등장합니다.")
-
     if st.button("➡️ 계속하기", use_container_width=True):
         st.session_state.step = 3
         st.rerun()
 
 # =========================
-# STEP 3: 생존 발화 1문장 제시
+# STEP 3: AI 추가 질문 (필요한 정보만)
 # =========================
 elif st.session_state.step == 3:
-    st.markdown("<div class='cow-step'>STEP 3 · 생존 발화 바로 제시</div>", unsafe_allow_html=True)
-    st.subheader("아래 한 문장만 기억하면 됩니다")
+    st.markdown("<div class='cow-step'>STEP 3 · AI 추가 질문</div>", unsafe_allow_html=True)
+    st.subheader("정확한 이해를 위한 핵심 질문만 드립니다")
+
+    st.markdown('<div class="cow-card">', unsafe_allow_html=True)
+    st.markdown("**항목 1. 지금 바로 말해야 하나요?**")
+    st.session_state.question_answers["timing"] = st.radio(
+        "항목 1",
+        ["지금 이 자리에서 말해야 함", "조금 있다가 말해도 됨"],
+        index=0,
+        label_visibility="collapsed",
+    )
+    st.markdown("**항목 2. 이유를 길게 설명할 수 있는 분위기인가요?**")
+    st.session_state.question_answers["detail"] = st.radio(
+        "항목 2",
+        ["간단히만 말해야 함", "설명해도 되는 분위기"],
+        index=0,
+        label_visibility="collapsed",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if st.button("➡️ 다음 단계", use_container_width=True):
+        st.session_state.step = 6
+        st.rerun()
+
+# =========================
+# STEP 6: 생존 발화 제시 (메인 기능)
+# =========================
+elif st.session_state.step == 6:
+    st.markdown("<div class='cow-step'>STEP 6 · 생존 발화 제시</div>", unsafe_allow_html=True)
+    st.subheader("이 상황에서는 아래 한 문장으로 충분합니다")
 
     st.markdown('<div class="cow-survival">', unsafe_allow_html=True)
-    st.markdown("**Survival line**")
+    st.markdown("**Survival version**")
     st.markdown(f"👉 *{st.session_state.survival_line}*")
     st.markdown("</div>", unsafe_allow_html=True)
 
     speak_button(st.session_state.survival_line, "🔊 문장 듣기", key="survival")
-    st.caption("왜는 설명하지 않습니다. 지금 당장 쓸 수 있는 것만 제시합니다.")
+    render_tts_block(st.session_state.survival_line, key="survival-tts")
+
+    st.caption("이유는 질문이 나오면 그때 짧게 덧붙이면 됩니다.")
 
     if st.button("➡️ 말해보기", use_container_width=True):
-        st.session_state.step = 4
+        st.session_state.step = 7
         st.rerun()
 
 # =========================
-# STEP 4: 말해보기 + 최소 피드백
+# STEP 7: 발화 연습 + 인터네이션
 # =========================
-elif st.session_state.step == 4:
-    st.markdown("<div class='cow-step'>STEP 4 · 말해보기 + 최소 피드백</div>", unsafe_allow_html=True)
+elif st.session_state.step == 7:
+    st.markdown("<div class='cow-step'>STEP 7 · 발화 연습 + 인터네이션</div>", unsafe_allow_html=True)
     st.subheader("한 번 말해보세요. 완벽하지 않아도 괜찮습니다.")
 
     st.markdown('<div class="cow-card">', unsafe_allow_html=True)
-    practice_text = st.text_input(
+    st.session_state.practice_text = st.text_input(
         "앱 안내",
+        value=st.session_state.practice_text,
         placeholder="여기에 한번 적어보거나, 실제로 말해보세요.",
         label_visibility="visible",
     )
+    st.markdown("**Audio In**")
+    audio_blob = st.audio_input("오디오로 말해보기", label_visibility="collapsed")
+    if audio_blob and openai_enabled():
+        client = OpenAI()
+        transcript = client.audio.transcriptions.create(
+            model="gpt-4o-mini-transcribe",
+            file=("practice.wav", audio_blob.getvalue()),
+        )
+        st.session_state.latest_transcript = transcript.text
+        st.markdown(f"**인식된 문장:** {st.session_state.latest_transcript}")
+    elif audio_blob:
+        st.info("음성 인식을 위해 OPENAI_API_KEY를 설정해 주세요.")
     st.markdown('</div>', unsafe_allow_html=True)
 
     if st.button("피드백 받기", use_container_width=True):
-        if not practice_text.strip():
-            st.warning("한 줄이라도 적어주세요.")
+        if not st.session_state.practice_text.strip() and not st.session_state.latest_transcript.strip():
+            st.warning("한 줄이라도 적거나, 오디오를 녹음해 주세요.")
         else:
-            st.markdown('<div class="cow-feedback">', unsafe_allow_html=True)
-            st.markdown("**피드백**")
-            st.markdown("✔️ 전달됨")
-            st.markdown("✔️ 너무 길지 않음")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.session_state.step = 8
+            st.rerun()
 
-            st.session_state.history.append({
+# =========================
+# STEP 8: 즉각 발화 피드백
+# =========================
+elif st.session_state.step == 8:
+    st.markdown("<div class='cow-step'>STEP 8 · 즉각 발화 피드백</div>", unsafe_allow_html=True)
+    st.subheader("이번 발화에 대한 피드백입니다")
+
+    st.markdown('<div class="cow-feedback">', unsafe_allow_html=True)
+    st.markdown("✔️ 의도 전달: 충분")
+    st.markdown("✔️ 길이: 적절")
+    st.markdown("✔️ 회피 없이 요청을 전달함")
+    st.markdown("✔️ 생존 발화로 충분함")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    if st.button("➡️ 저장하고 다음", use_container_width=True):
+        st.session_state.history.append(
+            {
                 "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "context": st.session_state.context_text.strip(),
-            })
-
-            st.caption("이번 훈련은 자동 저장되었습니다. 리포트 화면은 지금 보이지 않습니다.")
-
-            if st.button("🆕 새 상황"):
-                st.session_state.step = 1
-                st.session_state.context_text = ""
-                st.rerun()
+                "practice": st.session_state.practice_text.strip() or st.session_state.latest_transcript,
+            }
+        )
+        st.session_state.step = 9
+        st.rerun()
 
 # =========================
-# STEP 5: 누적 리포트 (조용히 쌓임)
+# STEP 9: 누적 리포트 반영 (보이지 않게 저장)
 # =========================
-st.markdown("<div class='cow-divider'></div>", unsafe_allow_html=True)
-st.subheader("✅ COW 간략화 실행 플로우 (MVP)")
-st.markdown(
-    """
-    **핵심 원칙 (3개만 기억)**  
-    1. 선택 최소화  
-    2. 말 줄이기  
-    3. 훈련은 한 번에 하나만
-    """
-)
+elif st.session_state.step == 9:
+    st.markdown("<div class='cow-step'>STEP 9 · 누적 리포트 반영</div>", unsafe_allow_html=True)
+    st.subheader("이번 기록은 조용히 저장됩니다")
 
-with st.expander("앱 구동 시뮬레이션 보기", expanded=False):
-    st.markdown(
-        """
-        **STEP 1** 자유 맥락 입력 → 바로 다음 단계  
-        **STEP 2** 핵심 맥락 요약 (질문 생략 가능)  
-        **STEP 3** 생존 발화 1문장 바로 제시  
-        **STEP 4** 말해보기 + 최소 피드백  
-        **STEP 5** 누적 리포트는 백그라운드 자동 저장  
-        """
-    )
+    st.markdown('<div class="cow-card">', unsafe_allow_html=True)
+    st.markdown("**시스템 기록**")
+    st.markdown("• 상황 요약 저장")
+    st.markdown("• 생존 발화 선택 기록")
+    st.markdown("• 짧은 발화 선호 패턴 기록")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.subheader("🔥 간략화의 핵심 효과")
-st.table(
-    {
-        "항목": ["사용 시간", "학습 깊이", "진입 장벽", "초보자 체감"],
-        "풀 버전": ["5~7분", "깊음", "중간", "배운다"],
-        "간략화 MVP": ["1~2분", "알지만 즉각적", "아주 낮음", "살았다"],
-    }
-)
+    if st.button("➡️ 리포트 예시 보기", use_container_width=True):
+        st.session_state.step = 10
+        st.rerun()
 
-st.subheader("🎯 간략화 버전의 정체성 문장")
-st.markdown(
-    """
-    > 말을 잘하게 만드는 앱이 아니라, 지금 당장 말할 수 있게 해주는 앱.  
-    > 회의 들어가기 2분 전에 켜는 앱.
-    """
-)
+# =========================
+# STEP 10: 며칠 뒤 누적 리포트 예시
+# =========================
+elif st.session_state.step == 10:
+    st.markdown("<div class='cow-step'>STEP 10 · 며칠 뒤 누적 리포트 예시</div>", unsafe_allow_html=True)
+    st.subheader("최근 훈련을 보면")
 
-st.subheader("🧭 풀 버전은 어디로 갔나?")
-st.markdown(
-    """
-    - 설정에서 **훈련 모드 ON**  
-    - 처음 3~5회 사용 후 자동 해제  
-    - 또는 “오늘은 연습할 시간 있어요” 버튼
-    """
-)
+    st.markdown('<div class="cow-card">', unsafe_allow_html=True)
+    st.markdown("• 핵심부터 말하는 선택을 자주 함")
+    st.markdown("• 상황 신호를 먼저 제시함")
+    st.markdown("• 설명을 줄이는 연습이 누적됨")
+    st.markdown("• 다음 포인트: 이유를 한 문장으로 덧붙이기")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.subheader("✂️ 의도적으로 뺀 것")
-st.markdown(
-    """
-    - 사고 구조 설명  
-    - 문화 텍스트  
-    - 여러 선택 문제  
-    - 자세한 리포트 즉시 노출  
-    """
-)
+    if st.button("🆕 새 상황 시작", use_container_width=True):
+        st.session_state.step = 1
+        st.session_state.context_text = ""
+        st.session_state.practice_text = ""
+        st.session_state.latest_transcript = ""
+        st.rerun()
 
-st.caption("말을 줄였더니, 오히려 말할 수 있게 되었습니다.")
+else:
+    st.session_state.step = 1
+    st.rerun()
